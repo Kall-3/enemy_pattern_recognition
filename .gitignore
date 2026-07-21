@@ -1,0 +1,33 @@
+# Python caches and tooling
+__pycache__/
+*.py[cod]
+*.pyd
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.pyright/
+.coverage
+htmlcov/
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Generated gameplay dataset
+training_images/collected/
+training_images/goon_labels.json
+training_images/*.tmp
+
+# Packaging output
+build/
+dist/
+*.spec
+
+# Editor, OS, and local agent metadata
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+.agents/
+.codex/
