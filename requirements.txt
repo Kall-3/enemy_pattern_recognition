@@ -1,0 +1,6 @@
+numpy
+opencv-python
+mss
+pynput
+pyvjoy; platform_system == "Windows"
+evdev; platform_system == "Linux"
