@@ -192,8 +192,8 @@ def parse_arguments() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
         "--window-title",
-        default="LEGO Batman",
-        help='part of the game window title (default: "LEGO Batman")',
+        default="Batman",
+        help='part of the game window title (default: "Batman")',
     )
     parser.add_argument(
         "--threshold",
