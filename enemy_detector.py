@@ -118,6 +118,18 @@ def draw_detections(frame: np.ndarray, detections: list[Detection]) -> None:
         )
 
 
+def parse_region(value: str) -> dict[str, int]:
+    try:
+        left, top, width, height = (int(part.strip()) for part in value.split(","))
+    except ValueError as error:
+        raise argparse.ArgumentTypeError(
+            "region must be left,top,width,height"
+        ) from error
+    if width <= 0 or height <= 0:
+        raise argparse.ArgumentTypeError("region width and height must be positive")
+    return {"left": left, "top": top, "width": width, "height": height}
+
+
 def parse_arguments() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
@@ -131,6 +143,17 @@ def parse_arguments() -> argparse.Namespace:
         type=int,
         default=1,
         help="monitor number to capture (default: 1)",
+    )
+    parser.add_argument(
+        "--region",
+        type=parse_region,
+        help="capture only left,top,width,height; keep the preview outside this area",
+    )
+    parser.add_argument(
+        "--preview-scale",
+        type=float,
+        default=0.6,
+        help="preview size multiplier (default: 0.6)",
     )
     parser.add_argument(
         "--image",
@@ -155,6 +178,8 @@ def main() -> None:
     arguments = parse_arguments()
     if not 0.0 < arguments.threshold <= 1.0:
         raise SystemExit("--threshold must be greater than 0 and at most 1")
+    if not 0.1 <= arguments.preview_scale <= 1.0:
+        raise SystemExit("--preview-scale must be between 0.1 and 1.0")
 
     templates = load_templates(TEMPLATE_DIRECTORY)
     if not templates:
@@ -178,15 +203,20 @@ def main() -> None:
     previous_time = time.perf_counter()
 
     with mss.mss() as capture:
-        if arguments.monitor < 1 or arguments.monitor >= len(capture.monitors):
-            raise SystemExit(
-                f"Monitor {arguments.monitor} does not exist; "
-                f"choose 1-{len(capture.monitors) - 1}"
-            )
-        monitor = capture.monitors[arguments.monitor]
+        if arguments.region is not None:
+            capture_area = arguments.region
+        else:
+            if arguments.monitor < 1 or arguments.monitor >= len(capture.monitors):
+                raise SystemExit(
+                    f"Monitor {arguments.monitor} does not exist; "
+                    f"choose 1-{len(capture.monitors) - 1}"
+                )
+            capture_area = capture.monitors[arguments.monitor]
+
+        print(f"Capturing {capture_area}")
 
         while True:
-            frame = np.asarray(capture.grab(monitor))[:, :, :3].copy()
+            frame = np.asarray(capture.grab(capture_area))[:, :, :3].copy()
             detections = detect_and_draw(frame, templates, arguments.threshold)
 
             current_time = time.perf_counter()
@@ -202,7 +232,17 @@ def main() -> None:
                 2,
                 cv2.LINE_AA,
             )
-            cv2.imshow("LEGO Batman enemy detector", frame)
+            if arguments.preview_scale < 1.0:
+                preview = cv2.resize(
+                    frame,
+                    None,
+                    fx=arguments.preview_scale,
+                    fy=arguments.preview_scale,
+                    interpolation=cv2.INTER_AREA,
+                )
+            else:
+                preview = frame
+            cv2.imshow("LEGO Batman enemy detector", preview)
             if cv2.waitKey(1) & 0xFF == ord("q"):
                 break
 
