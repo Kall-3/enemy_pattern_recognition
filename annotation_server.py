@@ -48,6 +48,7 @@ HTML = r"""<!doctype html>
     button:hover { filter: brightness(1.15); }
     button.active { border-color: white; box-shadow: 0 0 0 2px #000; }
     button:disabled { opacity: .4; cursor: default; }
+    select { padding: 10px; border-radius: 7px; background: #30333a; color: white; }
     .batman { background: #2574d8; } .robin { background: #28a850; }
     .goon { background: #c038d0; } .other_enemy { background: #e07828; }
     #save { background: #16723a; font-weight: 700; }
@@ -72,9 +73,16 @@ HTML = r"""<!doctype html>
   <footer>
     <button onclick="previousImage()">← Previous</button>
     <button onclick="skipImage()">Skip</button>
-    <button id="queue-mode" onclick="toggleQueue()">Queue: unboxed</button>
+    <select id="queue-mode" onchange="changeQueue(this.value)">
+      <option value="unboxed">Manual: unboxed</option>
+      <option value="review">Review model boxes</option>
+      <option value="needs_fix">Fix incorrect boxes</option>
+      <option value="all">Browse all images</option>
+    </select>
     <div class="classes" id="classes"></div>
     <button id="delete" onclick="deleteSelected()">Delete <kbd>Del</kbd></button>
+    <button id="correct" onclick="markReview('correct')" hidden>Correct <kbd>C</kbd></button>
+    <button id="needs-fix" onclick="markReview('needs_fix')" hidden>Needs fixing <kbd>F</kbd></button>
     <button id="save" onclick="saveAndNext()">Save &amp; next <kbd>Space</kbd></button>
   </footer>
 <script>
@@ -87,7 +95,7 @@ const CLASS_INFO = {
 const canvas = document.querySelector('#canvas');
 const context = canvas.getContext('2d');
 const background = new Image();
-let current = null, boxes = [], selected = -1, activeClass = 'goon', pendingOnly = true;
+let current = null, boxes = [], selected = -1, activeClass = 'goon', queueMode = 'unboxed';
 let gesture = null, dirty = false, history = [];
 
 for (const [name, info] of Object.entries(CLASS_INFO)) {
@@ -100,7 +108,9 @@ for (const [name, info] of Object.entries(CLASS_INFO)) {
 
 function chooseClass(name) {
   activeClass = name;
-  if (selected >= 0) { boxes[selected].class_name = name; setDirty(); draw(); }
+  if (selected >= 0) {
+    boxes[selected].class_name = name; boxes[selected].source = 'corrected'; setDirty(); draw();
+  }
   document.querySelectorAll('[data-class-name]').forEach(button =>
     button.classList.toggle('active', button.dataset.className === name));
 }
@@ -121,8 +131,11 @@ function pixelBox(box) {
 }
 
 function normalizedBox(box) {
-  return {class_name:box.class_name, x:box.x/canvas.width, y:box.y/canvas.height,
-          width:box.width/canvas.width, height:box.height/canvas.height};
+  const result={class_name:box.class_name, x:box.x/canvas.width, y:box.y/canvas.height,
+    width:box.width/canvas.width, height:box.height/canvas.height,
+    source:box.source || 'manual'};
+  if (box.confidence !== undefined) result.confidence=box.confidence;
+  return result;
 }
 
 function handles(box) {
@@ -152,11 +165,14 @@ function draw() {
   boxes.forEach((box,index) => {
     const pixel=pixelBox(box), info=CLASS_INFO[box.class_name] || CLASS_INFO.other_enemy;
     context.lineWidth = index===selected ? 4 : 2;
+    context.setLineDash(box.source==='model' ? [9,6] : []);
     context.strokeStyle=info.color; context.strokeRect(pixel.x,pixel.y,pixel.width,pixel.height);
+    context.setLineDash([]);
     context.font='bold 16px system-ui';
-    const labelWidth=context.measureText(info.label).width+10;
+    const label=box.confidence === undefined ? info.label : `${info.label} ${Math.round(box.confidence*100)}%`;
+    const labelWidth=context.measureText(label).width+10;
     context.fillStyle=info.color; context.fillRect(pixel.x,Math.max(0,pixel.y-23),labelWidth,23);
-    context.fillStyle='#080808'; context.fillText(info.label,pixel.x+5,Math.max(17,pixel.y-6));
+    context.fillStyle='#080808'; context.fillText(label,pixel.x+5,Math.max(17,pixel.y-6));
     if (index===selected) {
       context.fillStyle='#fff';
       for (const position of Object.values(handles(pixel)))
@@ -166,7 +182,7 @@ function draw() {
 }
 
 canvas.addEventListener('pointerdown', event => {
-  if (!current) return;
+  if (!current || queueMode==='review') return;
   const point=pointFromEvent(event); canvas.setPointerCapture(event.pointerId);
   if (selected>=0) {
     const resize=handleAt(point,pixelBox(boxes[selected]));
@@ -198,7 +214,8 @@ canvas.addEventListener('pointermove', event => {
   if (gesture.type==='move') {
     const x=Math.max(0,Math.min(canvas.width-original.width,original.x+point.x-gesture.start.x));
     const y=Math.max(0,Math.min(canvas.height-original.height,original.y+point.y-gesture.start.y));
-    boxes[selected]=normalizedBox({...original,x,y,class_name:boxes[selected].class_name});
+    boxes[selected]=normalizedBox({...original,x,y,class_name:boxes[selected].class_name,
+      source:'corrected'});
   } else {
     let left=original.x, top=original.y, right=original.x+original.width, bottom=original.y+original.height;
     if (gesture.handle.includes('w')) left=Math.min(point.x,right-min);
@@ -206,7 +223,7 @@ canvas.addEventListener('pointermove', event => {
     if (gesture.handle.includes('n')) top=Math.min(point.y,bottom-min);
     if (gesture.handle.includes('s')) bottom=Math.max(point.y,top+min);
     boxes[selected]=normalizedBox({x:left,y:top,width:right-left,height:bottom-top,
-      class_name:boxes[selected].class_name});
+      class_name:boxes[selected].class_name,source:'corrected'});
   }
   setDirty(); draw();
 });
@@ -219,7 +236,7 @@ canvas.addEventListener('pointerup', event => {
     const width=Math.min(canvas.width,Math.max(gesture.start.x,end.x))-x;
     const height=Math.min(canvas.height,Math.max(gesture.start.y,end.y))-y;
     if (width>=5 && height>=5) {
-      boxes.push(normalizedBox({x,y,width,height,class_name:activeClass}));
+      boxes.push(normalizedBox({x,y,width,height,class_name:activeClass,source:'manual'}));
       selected=boxes.length-1; setDirty();
     }
   }
@@ -227,12 +244,12 @@ canvas.addEventListener('pointerup', event => {
 });
 
 function deleteSelected() {
-  if (selected<0) return;
+  if (selected<0 || queueMode==='review') return;
   boxes.splice(selected,1); selected=-1; setDirty(); draw();
 }
 
 async function requestNext(after=null) {
-  const parameters=new URLSearchParams({pending:pendingOnly ? '1' : '0'});
+  const parameters=new URLSearchParams({mode:queueMode});
   if (after) parameters.set('after',after);
   return await (await fetch('/api/next?'+parameters)).json();
 }
@@ -260,28 +277,42 @@ async function skipImage() { if (dirty && !confirm('Discard unsaved box changes?
 async function previousImage() { if (!history.length) return;
   if (dirty && !confirm('Discard unsaved box changes?')) return;
   const name=history.pop(); await showImage(name,false); }
-async function toggleQueue() {
+async function changeQueue(mode) {
   if (dirty && !confirm('Discard unsaved box changes?')) return;
-  pendingOnly=!pendingOnly;
-  document.querySelector('#queue-mode').textContent=pendingOnly ? 'Queue: unboxed' : 'Queue: all images';
+  queueMode=mode; selected=-1;
+  const reviewing=queueMode==='review';
+  document.querySelector('#correct').hidden=!reviewing;
+  document.querySelector('#needs-fix').hidden=!reviewing;
+  document.querySelector('#delete').hidden=reviewing;
+  document.querySelector('#save').hidden=reviewing;
   const data=await requestNext(); await showImage(data.image,false);
 }
 async function saveBoxes() {
   if (!current) return false;
   const response=await fetch('/api/boxes',{method:'POST',headers:{'Content-Type':'application/json'},
-    body:JSON.stringify({image:current,boxes})});
+    body:JSON.stringify({image:current,boxes,
+      review_status:queueMode==='needs_fix' ? 'fixed' : null})});
   if (!response.ok) { alert('Saving failed: '+await response.text()); return false; }
   setDirty(false); return true;
 }
 async function saveAndNext() { if (!await saveBoxes()) return;
   const data=await requestNext(current); await showImage(data.image); }
+async function markReview(status) {
+  if (!current || queueMode!=='review') return;
+  const response=await fetch('/api/review',{method:'POST',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({image:current,status})});
+  if (!response.ok) { alert('Review save failed: '+await response.text()); return; }
+  const data=await requestNext(current); await showImage(data.image);
+}
 
 document.addEventListener('keydown', event => {
   if (event.repeat) return;
   const byKey=Object.entries(CLASS_INFO).find(([,info])=>info.key===event.key);
   if (byKey) { chooseClass(byKey[0]); event.preventDefault(); }
   else if (event.key==='Delete' || event.key==='Backspace') { deleteSelected(); event.preventDefault(); }
-  else if (event.code==='Space') { saveAndNext(); event.preventDefault(); }
+  else if (queueMode==='review' && event.key.toLowerCase()==='c') { markReview('correct'); event.preventDefault(); }
+  else if (queueMode==='review' && event.key.toLowerCase()==='f') { markReview('needs_fix'); event.preventDefault(); }
+  else if (event.code==='Space' && queueMode!=='review') { saveAndNext(); event.preventDefault(); }
   else if (event.key==='Escape') { selected=-1; gesture=null; draw(); }
 });
 window.addEventListener('beforeunload', event => { if (dirty) { event.preventDefault(); event.returnValue=''; } });
@@ -296,6 +327,8 @@ class AnnotationStore:
         self.lock = threading.Lock()
         self.scene_labels: dict[str, str] = {}
         self.annotations: dict[str, list[dict[str, float | str]]] = {}
+        self.reviews: dict[str, str] = {}
+        self.predicted_images: set[str] = set()
 
         if scene_labels.exists():
             loaded = json.loads(scene_labels.read_text(encoding="utf-8"))
@@ -315,6 +348,16 @@ class AnnotationStore:
                     for name, boxes in images.items()
                     if isinstance(boxes, list)
                 }
+            reviews = loaded.get("reviews", {}) if isinstance(loaded, dict) else {}
+            if isinstance(reviews, dict):
+                self.reviews = {
+                    str(name): str(status)
+                    for name, status in reviews.items()
+                    if status in {"correct", "needs_fix", "fixed"}
+                }
+            predicted = loaded.get("predicted_images", []) if isinstance(loaded, dict) else []
+            if isinstance(predicted, list):
+                self.predicted_images = {str(name) for name in predicted}
 
     def images(self) -> list[str]:
         images = [
@@ -329,7 +372,13 @@ class AnnotationStore:
         temporary = self.boxes_path.with_suffix(".tmp")
         temporary.write_text(
             json.dumps(
-                {"version": 1, "classes": list(CLASSES), "images": self.annotations},
+                {
+                    "version": 2,
+                    "classes": list(CLASSES),
+                    "images": self.annotations,
+                    "reviews": self.reviews,
+                    "predicted_images": sorted(self.predicted_images),
+                },
                 indent=2,
                 sort_keys=True,
             )
@@ -342,7 +391,12 @@ class AnnotationStore:
         if image not in self.images():
             raise ValueError("Unknown image")
 
-    def set_boxes(self, image: str, boxes: object) -> None:
+    def set_boxes(
+        self,
+        image: str,
+        boxes: object,
+        review_status: object = None,
+    ) -> None:
         self.validate_image(image)
         if not isinstance(boxes, list):
             raise ValueError("Boxes must be a list")
@@ -373,11 +427,37 @@ class AnnotationStore:
                     "y": round(y, 7),
                     "width": round(width, 7),
                     "height": round(height, 7),
+                    "source": (
+                        str(box.get("source"))
+                        if box.get("source") in {"model", "manual", "corrected"}
+                        else "manual"
+                    ),
                 }
             )
+            confidence = box.get("confidence")
+            if confidence is not None:
+                confidence_value = float(confidence)
+                if not 0 <= confidence_value <= 1:
+                    raise ValueError("Invalid confidence")
+                validated[-1]["confidence"] = round(confidence_value, 7)
         with self.lock:
             self.annotations[image] = validated
+            if any(box.get("source") == "model" for box in validated):
+                self.predicted_images.add(image)
+            if review_status == "fixed":
+                self.reviews[image] = "fixed"
             self.save()
+
+    def set_review(self, image: str, status: str) -> None:
+        self.validate_image(image)
+        if image not in self.annotations or status not in {"correct", "needs_fix"}:
+            raise ValueError("Invalid review")
+        with self.lock:
+            self.reviews[image] = status
+            self.save()
+
+    def has_model_boxes(self, image: str) -> bool:
+        return image in self.predicted_images
 
 
 def make_handler(store: AnnotationStore) -> type[BaseHTTPRequestHandler]:
@@ -401,12 +481,24 @@ def make_handler(store: AnnotationStore) -> type[BaseHTTPRequestHandler]:
                 return
             if parsed.path == "/api/next":
                 images = store.images()
-                pending_only = query.get("pending", ["1"])[0] != "0"
-                pending = (
-                    [name for name in images if name not in store.annotations]
-                    if pending_only
-                    else images
-                )
+                mode = query.get("mode", ["unboxed"])[0]
+                if mode == "unboxed":
+                    pending = [name for name in images if name not in store.annotations]
+                elif mode == "review":
+                    pending = [
+                        name
+                        for name in images
+                        if store.has_model_boxes(name) and name not in store.reviews
+                    ]
+                elif mode == "needs_fix":
+                    pending = [
+                        name for name in images if store.reviews.get(name) == "needs_fix"
+                    ]
+                elif mode == "all":
+                    pending = images
+                else:
+                    self.send_json({"error": "Unknown queue mode"}, 400)
+                    return
                 after = query.get("after", [None])[0]
                 if after in pending and len(pending) > 1:
                     start = (pending.index(after) + 1) % len(pending)
@@ -425,6 +517,7 @@ def make_handler(store: AnnotationStore) -> type[BaseHTTPRequestHandler]:
                         "image": image,
                         "boxes": store.annotations.get(image, []),
                         "scene_label": store.scene_labels.get(image),
+                        "review_status": store.reviews.get(image),
                         "annotated": len(store.annotations),
                         "total": len(store.images()),
                     }
@@ -450,7 +543,20 @@ def make_handler(store: AnnotationStore) -> type[BaseHTTPRequestHandler]:
                 try:
                     length = int(self.headers.get("Content-Length", "0"))
                     payload = json.loads(self.rfile.read(length))
-                    store.set_boxes(str(payload["image"]), payload["boxes"])
+                    store.set_boxes(
+                        str(payload["image"]),
+                        payload["boxes"],
+                        payload.get("review_status"),
+                    )
+                    self.send_json({"ok": True})
+                except (KeyError, ValueError, json.JSONDecodeError) as error:
+                    self.send_json({"error": str(error)}, 400)
+                return
+            if self.path == "/api/review":
+                try:
+                    length = int(self.headers.get("Content-Length", "0"))
+                    payload = json.loads(self.rfile.read(length))
+                    store.set_review(str(payload["image"]), str(payload["status"]))
                     self.send_json({"ok": True})
                 except (KeyError, ValueError, json.JSONDecodeError) as error:
                     self.send_json({"error": str(error)}, 400)

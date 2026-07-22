@@ -14,6 +14,12 @@ htmlcov/
 venv/
 env/
 
+# Generated datasets, annotations in progress, and trained models
+training_images/collected/
+training_images/*.tmp
+training_images/yolo_*/
+models/
+
 # Packaging output
 build/
 dist/
