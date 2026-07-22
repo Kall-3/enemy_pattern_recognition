@@ -75,7 +75,7 @@ HTML = r"""<!doctype html>
     <button id="queue-mode" onclick="toggleQueue()">Queue: unboxed</button>
     <div class="classes" id="classes"></div>
     <button id="delete" onclick="deleteSelected()">Delete <kbd>Del</kbd></button>
-    <button id="save" onclick="saveAndNext()">Save &amp; next <kbd>Enter</kbd></button>
+    <button id="save" onclick="saveAndNext()">Save &amp; next <kbd>Space</kbd></button>
   </footer>
 <script>
 const CLASS_INFO = {
@@ -281,7 +281,7 @@ document.addEventListener('keydown', event => {
   const byKey=Object.entries(CLASS_INFO).find(([,info])=>info.key===event.key);
   if (byKey) { chooseClass(byKey[0]); event.preventDefault(); }
   else if (event.key==='Delete' || event.key==='Backspace') { deleteSelected(); event.preventDefault(); }
-  else if (event.key==='Enter') { saveAndNext(); event.preventDefault(); }
+  else if (event.code==='Space') { saveAndNext(); event.preventDefault(); }
   else if (event.key==='Escape') { selected=-1; gesture=null; draw(); }
 });
 window.addEventListener('beforeunload', event => { if (dirty) { event.preventDefault(); event.returnValue=''; } });
