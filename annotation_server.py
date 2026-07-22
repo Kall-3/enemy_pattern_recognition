@@ -259,13 +259,15 @@ async function showImage(name, pushHistory=true) {
     current=null; canvas.hidden=true; document.querySelector('#empty').hidden=false; return;
   }
   if (pushHistory && current) history.push(current);
-  const data=await (await fetch('/api/item?image='+encodeURIComponent(name))).json();
+  const parameters=new URLSearchParams({image:name,mode:queueMode});
+  const data=await (await fetch('/api/item?'+parameters)).json();
   current=name; boxes=data.boxes || []; selected=-1; gesture=null; setDirty(false);
   document.querySelector('#filename').textContent=name;
   const badge=document.querySelector('#scene-label');
   badge.textContent=data.scene_label ? `Goon: ${data.scene_label}` : 'Unclassified';
   badge.className=data.scene_label || '';
-  document.querySelector('#progress').textContent=`${data.annotated}/${data.total} boxed`;
+  document.querySelector('#progress').textContent=
+    `${data.queue_label} ${data.queue_position}/${data.queue_total}`;
   document.querySelector('#empty').hidden=true; canvas.hidden=false;
   background.onload=()=>{ canvas.width=background.naturalWidth; canvas.height=background.naturalHeight; draw(); };
   background.src='/image/'+encodeURIComponent(name)+'?v='+Date.now();
@@ -507,11 +509,38 @@ def make_handler(store: AnnotationStore) -> type[BaseHTTPRequestHandler]:
                 return
             if parsed.path == "/api/item":
                 image = query.get("image", [""])[0]
+                mode = query.get("mode", ["unboxed"])[0]
                 try:
                     store.validate_image(image)
                 except ValueError:
                     self.send_json({"error": "Unknown image"}, 404)
                     return
+                images = store.images()
+                if mode == "review":
+                    review_images = [name for name in images if store.has_model_boxes(name)]
+                    reviewed = sum(name in store.reviews for name in review_images)
+                    queue_total = len(review_images)
+                    queue_position = reviewed + (0 if image in store.reviews else 1)
+                    queue_label = "Review"
+                elif mode == "needs_fix":
+                    correction_images = [
+                        name
+                        for name in images
+                        if store.reviews.get(name) in {"needs_fix", "fixed"}
+                    ]
+                    fixed = sum(store.reviews.get(name) == "fixed" for name in correction_images)
+                    queue_total = len(correction_images)
+                    queue_position = fixed + (0 if store.reviews.get(image) == "fixed" else 1)
+                    queue_label = "Fix"
+                elif mode == "all":
+                    queue_total = len(images)
+                    queue_position = images.index(image) + 1
+                    queue_label = "Image"
+                else:
+                    queue_total = len(images)
+                    annotated = len(store.annotations)
+                    queue_position = annotated + (0 if image in store.annotations else 1)
+                    queue_label = "Manual"
                 self.send_json(
                     {
                         "image": image,
@@ -520,6 +549,9 @@ def make_handler(store: AnnotationStore) -> type[BaseHTTPRequestHandler]:
                         "review_status": store.reviews.get(image),
                         "annotated": len(store.annotations),
                         "total": len(store.images()),
+                        "queue_label": queue_label,
+                        "queue_position": min(queue_position, max(queue_total, 1)),
+                        "queue_total": queue_total,
                     }
                 )
                 return
