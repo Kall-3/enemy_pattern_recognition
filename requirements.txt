@@ -1,6 +1,7 @@
 numpy
 opencv-python
 mss
+PySide6
 pynput
 pyvjoy; platform_system == "Windows"
 evdev; platform_system == "Linux"
