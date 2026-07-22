@@ -71,7 +71,12 @@ def main() -> None:
     selected = []
     for path in candidates:
         name = path.relative_to(arguments.images).as_posix()
-        if name not in annotations or (arguments.replace_predictions and name in predicted):
+        replaceable_prediction = (
+            arguments.replace_predictions
+            and name in predicted
+            and reviews.get(name) not in {"correct", "fixed"}
+        )
+        if name not in annotations or replaceable_prediction:
             selected.append(path)
     if not selected:
         print("No unannotated images require predictions.")

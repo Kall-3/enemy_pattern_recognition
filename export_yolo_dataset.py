@@ -116,9 +116,42 @@ def main() -> None:
     raw = document.get("images", {})
     if not isinstance(raw, dict) or not raw:
         raise SystemExit("No bounding-box annotations found")
-    annotations: dict[str, list[dict[str, Any]]] = {
+    all_annotations: dict[str, list[dict[str, Any]]] = {
         str(name): boxes for name, boxes in raw.items() if isinstance(boxes, list)
     }
+    predicted_images = set(map(str, document.get("predicted_images", [])))
+    # Recover non-empty model predictions from box metadata if an older file is
+    # missing the top-level predicted_images index.
+    predicted_images.update(
+        name
+        for name, boxes in all_annotations.items()
+        if any(box.get("source") == "model" for box in boxes)
+    )
+    reviews = document.get("reviews", {})
+    if not isinstance(reviews, dict):
+        raise SystemExit("Invalid reviews section in annotation document")
+    annotations = {
+        name: boxes
+        for name, boxes in all_annotations.items()
+        if name not in predicted_images or reviews.get(name) in {"correct", "fixed"}
+    }
+    excluded = len(all_annotations) - len(annotations)
+    if not annotations:
+        raise SystemExit("No trusted annotations found; review or fix model predictions first")
+    manual_count = sum(name not in predicted_images for name in all_annotations)
+    accepted_count = sum(reviews.get(name) == "correct" for name in predicted_images)
+    fixed_count = sum(reviews.get(name) == "fixed" for name in predicted_images)
+    needs_fix_count = sum(reviews.get(name) == "needs_fix" for name in predicted_images)
+    unreviewed_count = sum(name not in reviews for name in predicted_images)
+    print("Annotation audit:")
+    print(f"  Included manual images:         {manual_count}")
+    print(f"  Included accepted predictions:  {accepted_count}")
+    print(f"  Included human-fixed images:    {fixed_count}")
+    print(f"  Excluded needs-fixing images:   {needs_fix_count}")
+    print(f"  Excluded unreviewed predictions:{unreviewed_count:>4}")
+    print(f"  Training images selected:       {len(annotations)}")
+    if excluded != needs_fix_count + unreviewed_count:
+        print(f"  Other excluded images:          {excluded - needs_fix_count - unreviewed_count}")
     unknown = {
         str(box.get("class_name"))
         for boxes in annotations.values()
