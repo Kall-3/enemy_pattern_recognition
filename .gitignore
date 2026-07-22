@@ -14,11 +14,6 @@ htmlcov/
 venv/
 env/
 
-# Generated gameplay dataset
-training_images/collected/
-training_images/goon_labels.json
-training_images/*.tmp
-
 # Packaging output
 build/
 dist/
