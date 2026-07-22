@@ -4,6 +4,7 @@
 
 import argparse
 import json
+import time
 from pathlib import Path
 
 
@@ -49,6 +50,7 @@ def main() -> None:
         raise SystemExit(f"Model not found: {arguments.model}")
     if not 0 < arguments.confidence < 1:
         raise SystemExit("--confidence must be between 0 and 1")
+    print("Loading Ultralytics (the first import can take a little while)...", flush=True)
     try:
         from ultralytics import YOLO
     except ImportError as error:
@@ -75,10 +77,9 @@ def main() -> None:
         print("No unannotated images require predictions.")
         return
 
+    print(f"Loading model: {arguments.model}", flush=True)
     model = YOLO(str(arguments.model))
     settings: dict[str, object] = {
-        "source": [str(path.resolve()) for path in selected],
-        "stream": True,
         "conf": arguments.confidence,
         "imgsz": arguments.image_size,
         "verbose": False,
@@ -87,8 +88,25 @@ def main() -> None:
         settings["device"] = arguments.device
 
     completed = 0
+    total_detections = 0
+    started = time.monotonic()
     image_root = arguments.images.resolve()
-    for result in model.predict(**settings):
+    print(
+        f"Predicting {len(selected)} images one at a time on "
+        f"{arguments.device or 'the automatically selected device'}...",
+        flush=True,
+    )
+    for path in selected:
+        try:
+            results = model.predict(source=str(path.resolve()), **settings)
+        except RuntimeError as error:
+            if "out of memory" in str(error).lower():
+                raise SystemExit(
+                    "CUDA ran out of memory on one image. Retry with "
+                    "--image-size 512, or use --device cpu."
+                ) from error
+            raise
+        result = results[0]
         name = Path(result.path).resolve().relative_to(image_root).as_posix()
         boxes = []
         if result.boxes is not None:
@@ -115,9 +133,20 @@ def main() -> None:
         predicted.add(name)
         reviews.pop(name, None)
         completed += 1
-        if completed % 50 == 0:
+        total_detections += len(boxes)
+        if completed % 25 == 0:
             save_document(arguments.annotations, document, predicted)
-            print(f"Predicted {completed}/{len(selected)} images")
+        if completed == 1 or completed % 10 == 0 or completed == len(selected):
+            elapsed = time.monotonic() - started
+            rate = completed / max(elapsed, 0.001)
+            remaining = (len(selected) - completed) / max(rate, 0.001)
+            print(
+                f"[{completed:>4}/{len(selected)}] "
+                f"{completed / len(selected):>6.1%} | "
+                f"{total_detections} boxes | "
+                f"{rate:.1f} images/s | ETA {remaining / 60:.1f} min",
+                flush=True,
+            )
 
     save_document(arguments.annotations, document, predicted)
     print(f"Imported predictions for {completed} images into {arguments.annotations}")
