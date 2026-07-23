@@ -23,7 +23,12 @@ def parse_arguments() -> argparse.Namespace:
         help="epochs without validation improvement before stopping; 0 disables early stopping",
     )
     parser.add_argument("--image-size", type=int, default=640)
-    parser.add_argument("--batch", type=float, default=-1)
+    parser.add_argument(
+        "--batch",
+        type=int,
+        default=-1,
+        help="fixed integer batch size, or -1 for automatic selection",
+    )
     parser.add_argument("--device", help='for example "0" for GPU or "cpu"')
     parser.add_argument("--project", type=Path, default=DEFAULT_PROJECT)
     parser.add_argument("--name", default="round1")
