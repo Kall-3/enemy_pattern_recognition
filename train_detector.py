@@ -16,6 +16,12 @@ def parse_arguments() -> argparse.Namespace:
     parser.add_argument("--data", type=Path, default=DEFAULT_DATA)
     parser.add_argument("--model", default="yolo11n.pt")
     parser.add_argument("--epochs", type=int, default=100)
+    parser.add_argument(
+        "--patience",
+        type=int,
+        default=0,
+        help="epochs without validation improvement before stopping; 0 disables early stopping",
+    )
     parser.add_argument("--image-size", type=int, default=640)
     parser.add_argument("--batch", type=float, default=-1)
     parser.add_argument("--device", help='for example "0" for GPU or "cpu"')
@@ -41,7 +47,7 @@ def main() -> None:
         "batch": arguments.batch,
         "project": str(arguments.project.resolve()),
         "name": arguments.name,
-        "patience": 25,
+        "patience": arguments.patience,
         "workers": 0,
         "seed": 42,
         "deterministic": True,
