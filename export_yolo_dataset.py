@@ -1,9 +1,9 @@
 """Export JSON bounding boxes as a grouped YOLO detection dataset."""
 
 import argparse
-import itertools
 import json
 import os
+import random
 import re
 import shutil
 from collections import Counter
@@ -46,25 +46,43 @@ def choose_validation_groups(
     annotations: dict[str, list[dict[str, Any]]],
     fraction: float,
 ) -> set[int]:
+    if len(groups) < 2:
+        raise SystemExit("At least two separate capture groups are needed for train/validation")
     target = max(1, round(sum(map(len, groups)) * fraction))
     all_classes = {
         str(box["class_name"]) for boxes in annotations.values() for box in boxes
     }
     best_score: tuple[int, int, int] | None = None
     best_indices: set[int] = set()
-    maximum_groups = min(len(groups) - 1, max(1, len(groups) // 2))
-    for count in range(1, maximum_groups + 1):
-        for combination in itertools.combinations(range(len(groups)), count):
-            names = [name for index in combination for name in groups[index]]
-            classes = {
-                str(box["class_name"])
-                for name in names
-                for box in annotations[name]
-            }
-            score = (len(all_classes - classes), abs(len(names) - target), count)
-            if best_score is None or score < best_score:
-                best_score = score
-                best_indices = set(combination)
+    randomizer = random.Random(42)
+    orders = [list(range(len(groups)))]
+    for _ in range(min(2000, max(200, len(groups) * 20))):
+        order = list(range(len(groups)))
+        randomizer.shuffle(order)
+        orders.append(order)
+
+    # Sample bounded combinations instead of exhaustively checking an
+    # exponential number of group subsets.
+    for order in orders:
+        combination: list[int] = []
+        image_count = 0
+        for index in order:
+            if len(combination) >= len(groups) - 1:
+                break
+            combination.append(index)
+            image_count += len(groups[index])
+            if image_count >= target:
+                break
+        names = [name for index in combination for name in groups[index]]
+        classes = {
+            str(box["class_name"])
+            for name in names
+            for box in annotations[name]
+        }
+        score = (len(all_classes - classes), abs(len(names) - target), len(combination))
+        if best_score is None or score < best_score:
+            best_score = score
+            best_indices = set(combination)
     return best_indices
 
 
@@ -164,6 +182,7 @@ def main() -> None:
     if missing:
         raise SystemExit(f"Missing source image: {missing[0]}")
 
+    print("Grouping adjacent screenshots and selecting validation captures...", flush=True)
     groups = make_capture_groups(list(annotations), arguments.group_gap)
     validation_groups = choose_validation_groups(
         groups, annotations, arguments.validation_fraction
@@ -174,6 +193,7 @@ def main() -> None:
     }
     class_ids = {name: index for index, name in enumerate(CLASSES)}
 
+    print(f"Creating YOLO image and label files for {len(annotations)} images...", flush=True)
     for split in ("train", "val"):
         (arguments.output / "images" / split).mkdir(parents=True, exist_ok=True)
         (arguments.output / "labels" / split).mkdir(parents=True, exist_ok=True)
