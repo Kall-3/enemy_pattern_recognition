@@ -80,7 +80,7 @@ HTML = r"""<!doctype html>
       <option value="all">Browse all images</option>
     </select>
     <div class="classes" id="classes"></div>
-    <button id="delete" onclick="deleteSelected()">Delete <kbd>Del</kbd></button>
+    <button id="delete" onclick="deleteSelected()">Delete <kbd>Tab</kbd></button>
     <button id="correct" onclick="markReview('correct')" hidden>Correct <kbd>C</kbd></button>
     <button id="needs-fix" onclick="markReview('needs_fix')" hidden>Needs fixing <kbd>F</kbd></button>
     <button id="save" onclick="saveAndNext()">Save &amp; next <kbd>Space</kbd></button>
@@ -311,7 +311,7 @@ document.addEventListener('keydown', event => {
   if (event.repeat) return;
   const byKey=Object.entries(CLASS_INFO).find(([,info])=>info.key===event.key);
   if (byKey) { chooseClass(byKey[0]); event.preventDefault(); }
-  else if (event.key==='Delete' || event.key==='Backspace') { deleteSelected(); event.preventDefault(); }
+  else if (event.key==='Tab') { deleteSelected(); event.preventDefault(); }
   else if (queueMode==='review' && event.key.toLowerCase()==='c') { markReview('correct'); event.preventDefault(); }
   else if (queueMode==='review' && event.key.toLowerCase()==='f') { markReview('needs_fix'); event.preventDefault(); }
   else if (event.code==='Space' && queueMode!=='review') { saveAndNext(); event.preventDefault(); }

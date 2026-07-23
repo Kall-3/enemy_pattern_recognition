@@ -76,7 +76,7 @@ Annotation controls:
 | Draw a box | Drag over a character |
 | Move a box | Drag inside it |
 | Resize a box | Select it and drag a corner |
-| Delete selected box | `Delete` or `Backspace` |
+| Delete selected box | `Tab` |
 | Save and move to next image | `Space` |
 | Accept model boxes | `C` |
 | Mark model boxes for correction | `F` |
