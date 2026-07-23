@@ -32,17 +32,43 @@ def parse_arguments() -> argparse.Namespace:
     parser.add_argument("--device", help='for example "0" for GPU or "cpu"')
     parser.add_argument("--project", type=Path, default=DEFAULT_PROJECT)
     parser.add_argument("--name", default="round1")
+    parser.add_argument(
+        "--resume",
+        type=Path,
+        help="resume an interrupted run from its weights/last.pt checkpoint",
+    )
     return parser.parse_args()
 
 
 def main() -> None:
     arguments = parse_arguments()
-    if not arguments.data.is_file():
-        raise SystemExit(f"Dataset config not found: {arguments.data}; run export_yolo_dataset.py")
     try:
         from ultralytics import YOLO
     except ImportError as error:
         raise SystemExit("Install training support with: python -m pip install ultralytics") from error
+
+    if arguments.resume:
+        checkpoint = arguments.resume.resolve()
+        if not checkpoint.is_file():
+            raise SystemExit(f"Resume checkpoint not found: {checkpoint}")
+        if checkpoint.name.lower() != "last.pt":
+            print(
+                f"Warning: exact continuation normally uses last.pt, not {checkpoint.name}."
+            )
+
+        print(f"Resuming training from: {checkpoint}")
+        model = YOLO(str(checkpoint))
+        resume_settings: dict[str, object] = {"resume": True}
+        if arguments.device:
+            resume_settings["device"] = arguments.device
+        results = model.train(**resume_settings)
+        print(f"Training output: {results.save_dir}")
+        print(f"Best model: {Path(results.save_dir) / 'weights' / 'best.pt'}")
+        print(f"Latest checkpoint: {Path(results.save_dir) / 'weights' / 'last.pt'}")
+        return
+
+    if not arguments.data.is_file():
+        raise SystemExit(f"Dataset config not found: {arguments.data}; run export_yolo_dataset.py")
 
     model = YOLO(arguments.model)
     settings: dict[str, object] = {
@@ -64,6 +90,7 @@ def main() -> None:
     results = model.train(**settings)
     print(f"Training output: {results.save_dir}")
     print(f"Best model: {Path(results.save_dir) / 'weights' / 'best.pt'}")
+    print(f"Latest checkpoint: {Path(results.save_dir) / 'weights' / 'last.pt'}")
 
 
 if __name__ == "__main__":
